@@ -1,0 +1,3 @@
+digraph Trie {
+    node [shape=circle];
+}

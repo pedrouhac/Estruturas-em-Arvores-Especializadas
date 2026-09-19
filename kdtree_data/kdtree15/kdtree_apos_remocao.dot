@@ -1,0 +1,30 @@
+digraph KDTree {
+    node [shape=box];
+    node0 [label="(35,45)", style=filled, fillcolor=lightgrey];
+    node1 [label="(5,25)"];
+    node0 -> node1 [label="E"];
+    node2 [label="(10,12)"];
+    node1 -> node2 [label="E"];
+    node3 [label="(20,90)"];
+    node1 -> node3 [label="D"];
+    node4 [label="(15,35)"];
+    node3 -> node4 [label="E"];
+    node5 [label="(25,55)"];
+    node3 -> node5 [label="D"];
+    node6 [label="(70,70)"];
+    node0 -> node6 [label="D"];
+    node7 [label="(50,30)"];
+    node6 -> node7 [label="E"];
+    node8 [label="(80,15)"];
+    node7 -> node8 [label="D"];
+    node9 [label="(55,5)"];
+    node8 -> node9 [label="E"];
+    node10 [label="(60,60)"];
+    node8 -> node10 [label="D"];
+    node11 [label="(85,40)"];
+    node10 -> node11 [label="D"];
+    node12 [label="(95,85)"];
+    node6 -> node12 [label="D"];
+    node13 [label="(45,75)"];
+    node12 -> node13 [label="E"];
+}

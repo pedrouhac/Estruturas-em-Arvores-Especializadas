@@ -1,0 +1,37 @@
+digraph Patricia {
+    node [shape=circle];
+    node0 [label=""];
+    node0 -> node1 [label="ca"];
+    node1 -> node2 [label="r"];
+    node2 [style=filled, fillcolor=lightgrey];
+    node2 -> node3 [label="reta"];
+    node3 [style=filled, fillcolor=lightgrey];
+    node2 -> node4 [label="ta"];
+    node4 [style=filled, fillcolor=lightgrey];
+    node1 -> node5 [label="sa"];
+    node5 [style=filled, fillcolor=lightgrey];
+    node1 -> node6 [label="ma"];
+    node6 [style=filled, fillcolor=lightgrey];
+    node1 -> node7 [label="chorro"];
+    node7 [style=filled, fillcolor=lightgrey];
+    node0 -> node8 [label="d"];
+    node8 -> node9 [label="a"];
+    node9 -> node10 [label="do"];
+    node10 [style=filled, fillcolor=lightgrey];
+    node9 -> node11 [label="ta"];
+    node11 [style=filled, fillcolor=lightgrey];
+    node8 -> node12 [label="edo"];
+    node12 [style=filled, fillcolor=lightgrey];
+    node0 -> node13 [label="r"];
+    node13 -> node14 [label="ato"];
+    node14 [style=filled, fillcolor=lightgrey];
+    node13 -> node15 [label="ota"];
+    node15 [style=filled, fillcolor=lightgrey];
+    node0 -> node16 [label="sa"];
+    node16 -> node17 [label="po"];
+    node17 [style=filled, fillcolor=lightgrey];
+    node16 -> node18 [label="la"];
+    node18 [style=filled, fillcolor=lightgrey];
+    node16 -> node19 [label="co"];
+    node19 [style=filled, fillcolor=lightgrey];
+}

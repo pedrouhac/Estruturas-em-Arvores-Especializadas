@@ -10,19 +10,57 @@
 using namespace std;
 using namespace std::chrono;
 
-// ==========================================================
-// KD-TREE (k-dimensional Tree), especializada para k=2 (pontos (x, y))
-//
-// Ideia central: em vez de comparar por uma única chave (como
-// BST/AVL/Splay/Treap), a KD-Tree PARTICIONA O ESPAÇO. A cada nível da
-// árvore, a dimensão usada para comparar alterna (aqui: nível par
-// compara por x, nível ímpar compara por y). Cada nó representa um
-// HIPERPLANO (aqui, uma reta) que corta o espaço em duas metades.
-// ==========================================================
-
 struct Ponto {
     double x, y;
 };
+
+// ==========================================================
+// UTILITÁRIO DE BENCHMARK E CSV
+// ==========================================================
+template<typename Func>
+long long cronometrar(Func operacao) {
+    auto inicio = high_resolution_clock::now();
+    operacao();
+    auto fim = high_resolution_clock::now();
+    return duration_cast<microseconds>(fim - inicio).count();
+}
+
+void registrarResultadoCSV(const string& nomeArquivo, const string& estrutura,
+                            const string& distribuicao, size_t n,
+                            long long tempoInsercaoUs, long long tempoBuscaExistenteUs,
+                            long long tempoBuscaInexistenteUs, long long tempoRemocaoUs,
+                            long long metricaEstrutural) {
+    ifstream teste(nomeArquivo);
+    bool arquivoJaExiste = teste.good();
+    teste.close();
+
+    ofstream csv(nomeArquivo, ios::app);
+    if (!csv.is_open()) return;
+
+    if (!arquivoJaExiste) {
+        csv << "estrutura,distribuicao,n,tempo_insercao_us,tempo_busca_existente_us,"
+               "tempo_busca_inexistente_us,tempo_remocao_us,metrica_estrutural\n";
+    }
+    csv << estrutura << "," << distribuicao << "," << n << ","
+        << tempoInsercaoUs << "," << tempoBuscaExistenteUs << ","
+        << tempoBuscaInexistenteUs << "," << tempoRemocaoUs << ","
+        << metricaEstrutural << "\n";
+    csv.close();
+}
+
+vector<Ponto> gerarChavesInexistentes(const vector<Ponto>& base) {
+    vector<Ponto> inexistentes;
+    inexistentes.reserve(base.size());
+    for (const Ponto& p : base) {
+        // Desloca as coordenadas drasticamente para garantir que não existam
+        inexistentes.push_back({p.x + 999999.0, p.y + 999999.0}); 
+    }
+    return inexistentes;
+}
+
+// ==========================================================
+// KD-TREE
+// ==========================================================
 
 struct KDNode {
     Ponto ponto;
@@ -50,8 +88,6 @@ double coordenada(const Ponto& p, int eixo) {
 // ==========================================================
 // INSERÇÃO -- O(log n) médio (O(n) no pior caso, se a árvore
 // degenerar por entradas já ordenadas/adversariais).
-// A cada nível, decide ir para esquerda/direita comparando a
-// coordenada do eixo correspondente à profundidade atual.
 // ==========================================================
 KDNode* inserir(KDNode* raiz, Ponto p, int profundidade = 0) {
     if (!raiz) return criarNo(p);
@@ -81,13 +117,7 @@ bool buscar(KDNode* raiz, Ponto p, int profundidade = 0) {
 }
 
 // ==========================================================
-// REMOÇÃO -- algoritmo clássico de Bentley (1975).
-// Não é possível simplesmente "pendurar" as subárvores como numa BST
-// comum, porque cada nível respeita um eixo de comparação diferente.
-// A técnica é: substituir o nó removido pelo elemento de MENOR valor,
-// NO MESMO EIXO do nó removido, encontrado na subárvore DIREITA (ou,
-// na ausência dela, na subárvore esquerda -- caso em que ela também
-// precisa ser realocada para o lado direito).
+// REMOÇÃO
 // ==========================================================
 KDNode* encontrarMinimo(KDNode* raiz, int eixoAlvo, int profundidade) {
     if (!raiz) return nullptr;
@@ -150,9 +180,6 @@ KDNode* remover(KDNode* raiz, Ponto p, int profundidade = 0) {
 
 // ==========================================================
 // OPERAÇÃO ESPECÍFICA: VIZINHO MAIS PRÓXIMO (Nearest Neighbor)
-// A operação que justifica a existência da KD-Tree: encontrar, em
-// O(log n) médio, o ponto mais próximo de um ponto de consulta -- sem
-// precisar comparar com todos os n pontos (o que seria O(n)).
 // ==========================================================
 double distanciaQuadrada(const Ponto& a, const Ponto& b) {
     double dx = a.x - b.x;
@@ -242,10 +269,6 @@ void exportarGraphviz(KDNode* raiz, const string& nomeArquivo) {
 
 // ==========================================================
 // EXPORTAÇÃO VISUAL 2: PARTICIONAMENTO ESPACIAL (SVG)
-// Esta é a representação mais importante para a KD-Tree, pois mostra
-// literalmente como o espaço 2D vai sendo cortado por retas verticais
-// (divisão por x) e horizontais (divisão por y), com a região de cada
-// corte limitada pela região herdada do nó pai.
 // ==========================================================
 void gerarSVGRecursivo(KDNode* no, double xMin, double xMax, double yMin, double yMax,
                        int profundidade, ofstream& arquivo) {
@@ -320,11 +343,16 @@ int main(int argc, char* argv[]) {
 
     KDNode* raiz = nullptr;
 
-    // --- Estado inicial (Seção 3, item 1) ---
+    // --- Estado inicial ---
     exportarSVG(raiz, 0, LIMITE, 0, LIMITE, "kdtree_estado_inicial.svg");
 
     vector<Ponto> pontos = lerPontos(caminhoPontos);
     cout << "--- Lidos " << pontos.size() << " pontos de \"" << caminhoPontos << "\" ---" << endl;
+    
+    if (pontos.empty()) {
+        cout << "Dataset vazio. Encerrando." << endl;
+        return 0;
+    }
 
     auto inicio = high_resolution_clock::now();
     for (const Ponto& p : pontos) {
@@ -336,15 +364,17 @@ int main(int argc, char* argv[]) {
     cout << "Insercao de " << pontos.size() << " pontos levou " << duracao.count() << " microsegundos." << endl;
     cout << "Altura da arvore apos insercoes: " << altura(raiz) << endl;
 
-    // --- Estado após inserções, evidenciando o particionamento espacial (Seção 3, item 1/2) ---
+    // --- Estado após inserções, evidenciando o particionamento espacial ---
     exportarSVG(raiz, 0, LIMITE, 0, LIMITE, "kdtree_apos_insercoes.svg");
     exportarGraphviz(raiz, "kdtree_apos_insercoes.dot");
 
     cout << "\n--- Teste de Busca ---" << endl;
-    Ponto alvoBusca = {50, 30};
-    cout << "Buscar (50,30): " << (buscar(raiz, alvoBusca) ? "Encontrado" : "Nao encontrado") << endl;
-    Ponto alvoInexistente = {99, 99};
-    cout << "Buscar (99,99): " << (buscar(raiz, alvoInexistente) ? "Encontrado" : "Nao encontrado") << endl;
+    Ponto alvoBusca = pontos[0]; 
+    cout << "Buscar (" << alvoBusca.x << "," << alvoBusca.y << "): " 
+         << (buscar(raiz, alvoBusca) ? "Encontrado" : "Nao encontrado") << endl;
+         
+    Ponto alvoInexistente = {999, 999};
+    cout << "Buscar (999,999): " << (buscar(raiz, alvoInexistente) ? "Encontrado" : "Nao encontrado") << endl;
 
     // --- Operação específica: vizinho mais próximo ---
     cout << "\n--- Teste de Vizinho Mais Proximo (operacao especifica) ---" << endl;
@@ -353,15 +383,63 @@ int main(int argc, char* argv[]) {
     cout << "Vizinho mais proximo de (" << consulta.x << "," << consulta.y << "): ("
          << vizinho.x << "," << vizinho.y << ")" << endl;
 
-    // --- Estado após remoção (Seção 3, item 3) ---
+    // --- Estado após remoção ---
     cout << "\n--- Teste de Remocao ---" << endl;
-    Ponto alvoRemocao = {30, 40}; // ponto raiz original
-    cout << "Removendo (30,40) [ponto raiz original]..." << endl;
+    Ponto alvoRemocao = pontos[0]; 
+    cout << "Removendo (" << alvoRemocao.x << "," << alvoRemocao.y << ") [ponto raiz original]..." << endl;
     raiz = remover(raiz, alvoRemocao);
-    cout << "Buscar (30,40) apos remocao: " << (buscar(raiz, alvoRemocao) ? "Encontrado" : "Nao encontrado") << endl;
+    cout << "Buscar (" << alvoRemocao.x << "," << alvoRemocao.y << ") apos remocao: " 
+         << (buscar(raiz, alvoRemocao) ? "Encontrado" : "Nao encontrado") << endl;
+         
     exportarSVG(raiz, 0, LIMITE, 0, LIMITE, "kdtree_apos_remocao.svg");
     exportarGraphviz(raiz, "kdtree_apos_remocao.dot");
 
     destruirKDTree(raiz);
+    
+    // ==========================================
+    // BENCHMARK
+    // ==========================================
+    string distribuicao = (argc > 2) ? argv[2] : "padrao";
+
+    KDNode* raizBench = nullptr;
+
+    long long tempoInsercaoBench = cronometrar([&]() {
+        for (const Ponto& p : pontos) raizBench = inserir(raizBench, p);
+    });
+
+    long long alturaFinal = altura(raizBench);
+
+    bool encontrouTudo = true;
+    long long tempoBuscaExistente = cronometrar([&]() {
+        for (const Ponto& p : pontos) {
+            if (!buscar(raizBench, p)) encontrouTudo = false;
+        }
+    });
+
+    vector<Ponto> chavesInexistentes = gerarChavesInexistentes(pontos);
+    bool encontrouAlgumaInexistente = false; // deve continuar "false" ao final (nenhuma deveria existir)
+    long long tempoBuscaInexistente = cronometrar([&]() {
+        for (const Ponto& p : chavesInexistentes) {
+            if (buscar(raizBench, p)) encontrouAlgumaInexistente = true;
+        }
+    });
+
+    long long tempoRemocaoBench = cronometrar([&]() {
+        for (const Ponto& p : pontos) raizBench = remover(raizBench, p);
+    });
+
+    cout << "\n--- Benchmark ---" << endl;
+    cout << "Insercao: " << tempoInsercaoBench << " us | Busca(existente): " << tempoBuscaExistente
+         << " us (todas encontradas: " << (encontrouTudo ? "sim" : "nao") << ")"
+         << " | Busca(inexistente): " << tempoBuscaInexistente
+         << " us (falso positivo: " << (encontrouAlgumaInexistente ? "sim" : "nao") << ")"
+         << " us | Remocao: " << tempoRemocaoBench << " us" << endl;
+
+    registrarResultadoCSV("resultados_kdtree.csv", "KD-Tree", distribuicao, pontos.size(),
+                           tempoInsercaoBench, tempoBuscaExistente, tempoBuscaInexistente,
+                           tempoRemocaoBench, alturaFinal);
+
+    destruirKDTree(raizBench);
+
     return 0;
 }

@@ -9,26 +9,47 @@ using namespace std;
 using namespace std::chrono;
 
 // ==========================================================
-// ÁRVORE PATRICIA (Radix Tree compacta) -- Abordagem Moderna
-//
-// Decisão de projeto (Seção 2 do relatório): em vez de seguir a proposta
-// original de Morrison (1968), que opera sobre alfabeto estritamente
-// binário e usa contagem de bits para decidir os desvios, esta
-// implementação adota a "abordagem moderna" de armazenar o FRAGMENTO DE
-// STRING (rótulo) diretamente em cada nó. Duas justificativas:
-//   1) Facilidade de manipulação: a operação central da estrutura -- o
-//      "split" (quebra de um nó em um prefixo comum e dois sufixos) --
-//      é muito mais simples de implementar com fatiamento de string
-//      (substr) do que com deslocamento de bits.
-//   2) Clareza visual: o enunciado exige a geração de representações
-//      visuais da estrutura; um nó rotulado "car" que se bifurca em
-//      "ro" e "ta" é imediatamente compreensível, enquanto uma árvore
-//      binária pura geraria grafos abstratos e pouco didáticos.
-//
-// Invariante estrutural mantida (Radix Tree): todo nó interno deve ter
-// pelo meno 2 filhos -- por isso a remoção inclui uma etapa de
-// MESCLAGEM (merge) de nós com um único filho.
+// UTILITÁRIO DE BENCHMARK E CSV
 // ==========================================================
+template<typename Func>
+long long cronometrar(Func operacao) {
+    auto inicio = high_resolution_clock::now();
+    operacao();
+    auto fim = high_resolution_clock::now();
+    return duration_cast<microseconds>(fim - inicio).count();
+}
+
+void registrarResultadoCSV(const string& nomeArquivo, const string& estrutura,
+                            const string& distribuicao, size_t n,
+                            long long tempoInsercaoUs, long long tempoBuscaExistenteUs,
+                            long long tempoBuscaInexistenteUs, long long tempoRemocaoUs,
+                            long long metricaEstrutural) {
+    ifstream teste(nomeArquivo);
+    bool arquivoJaExiste = teste.good();
+    teste.close();
+
+    ofstream csv(nomeArquivo, ios::app);
+    if (!csv.is_open()) return;
+
+    if (!arquivoJaExiste) {
+        csv << "estrutura,distribuicao,n,tempo_insercao_us,tempo_busca_existente_us,"
+               "tempo_busca_inexistente_us,tempo_remocao_us,metrica_estrutural\n";
+    }
+    csv << estrutura << "," << distribuicao << "," << n << ","
+        << tempoInsercaoUs << "," << tempoBuscaExistenteUs << ","
+        << tempoBuscaInexistenteUs << "," << tempoRemocaoUs << ","
+        << metricaEstrutural << "\n";
+    csv.close();
+}
+
+vector<string> gerarChavesInexistentes(const vector<string>& base) {
+    vector<string> inexistentes;
+    inexistentes.reserve(base.size());
+    for (const string& palavra : base) {
+        inexistentes.push_back(palavra + "zzq"); 
+    }
+    return inexistentes;
+}
 
 struct PatriciaNode {
     string rotulo;              // fragmento de chave armazenado neste nó
@@ -43,9 +64,7 @@ PatriciaNode* criarNo(const string& rotulo, bool fim) {
 }
 
 // ==========================================================
-// NORMALIZAÇÃO -- IDÊNTICA à usada na Trie, para garantir que as duas
-// estruturas recebam exatamente o mesmo conjunto de palavras a partir
-// do mesmo arquivo "dicionario.txt".
+// NORMALIZAÇÃO 
 // ==========================================================
 pair<string, bool> normalizar(const string& palavra) {
     string normalizada = "";
@@ -68,7 +87,7 @@ int prefixoComum(const string& a, const string& b) {
 }
 
 // ==========================================================
-// INSERÇÃO -- O(k), k = tamanho da chave, com possível "split"
+// INSERÇÃO -- O(k)
 // ==========================================================
 void inserirRec(PatriciaNode* no, const string& chave) {
     for (PatriciaNode*& filho : no->filhos) {
@@ -136,8 +155,7 @@ bool buscar(PatriciaNode* raiz, const string& palavraNormalizada) {
 }
 
 // ==========================================================
-// REMOÇÃO -- O(k), com mesclagem (merge) para preservar a invariante
-// "todo nó interno tem pelo menos 2 filhos".
+// REMOÇÃO -- O(k)
 // ==========================================================
 void removerRec(PatriciaNode* no, const string& chave) {
     for (size_t i = 0; i < no->filhos.size(); i++) {
@@ -181,8 +199,7 @@ void destruirPatricia(PatriciaNode* no) {
 }
 
 // ==========================================================
-// CONTAGEM DE NÓS -- para comparar, com o MESMO dicionário, o custo de
-// memória (nº de nós instanciados) entre Trie e Patricia (Seção 5).
+// CONTAGEM DE NÓS
 // ==========================================================
 int contarNos(PatriciaNode* no) {
     if (!no) return 0;
@@ -193,18 +210,13 @@ int contarNos(PatriciaNode* no) {
 
 // ==========================================================
 // EXPORTAÇÃO VISUAL (Graphviz / DOT)
-// Cada aresta é rotulada com o FRAGMENTO DE STRING armazenado no nó
-// filho -- exatamente o que a anotação de estudo recomendava para
-// tornar o grafo legível (ex.: nó "car" bifurcando em "ro" e "ta").
 // ==========================================================
 void gerarDotRecursivo(PatriciaNode* no, int meuId, int& proximoId, ofstream& arquivo) {
-    if (no->fimDePalavra) {
-        arquivo << "    node" << meuId << " [style=filled, fillcolor=lightgrey];\n";
-    }
     for (PatriciaNode* filho : no->filhos) {
         int idFilho = ++proximoId;
-        arquivo << "    node" << meuId << " -> node" << idFilho
-                << " [label=\"" << filho->rotulo << "\"];\n";
+        string estilo = filho->fimDePalavra ? ", style=\"rounded,filled\", fillcolor=lightgrey" : "";
+        arquivo << "    node" << idFilho << " [label=\"" << filho->rotulo << "\"" << estilo << "];\n";
+        arquivo << "    node" << meuId << " -> node" << idFilho << ";\n";
         gerarDotRecursivo(filho, idFilho, proximoId, arquivo);
     }
 }
@@ -212,7 +224,11 @@ void gerarDotRecursivo(PatriciaNode* no, int meuId, int& proximoId, ofstream& ar
 void exportarGraphviz(PatriciaNode* raiz, const string& nomeArquivo) {
     ofstream arquivo(nomeArquivo);
     if (!arquivo.is_open()) return;
-    arquivo << "digraph Patricia {\n    node [shape=circle];\n    node0 [label=\"\"];\n";
+    arquivo << "digraph Patricia {\n"
+            << "    graph [ranksep=0.6, nodesep=0.4];\n"
+            << "    node [shape=box, style=rounded, fontsize=18, margin=\"0.15,0.08\"];\n"
+            << "    edge [arrowsize=0.7];\n"
+            << "    node0 [label=\"\"];\n";
     int id = 0;
     gerarDotRecursivo(raiz, id, id, arquivo);
     arquivo << "}\n";
@@ -250,7 +266,7 @@ int main(int argc, char* argv[]) {
 
     PatriciaNode* raiz = criarNo("", false); // raiz é um nó "vazio" que só agrupa os ramos
 
-    // --- Estado inicial (Seção 3, item 1) ---
+    // --- Estado inicial ---
     exportarGraphviz(raiz, "patricia_estado_inicial.dot");
 
     vector<string> palavras = lerDicionario(caminhoDicionario);
@@ -266,7 +282,7 @@ int main(int argc, char* argv[]) {
     cout << "Insercao de " << palavras.size() << " palavras levou " << duracao.count() << " microsegundos." << endl;
     cout << "Numero de nos instanciados na Patricia: " << contarNos(raiz) << endl;
 
-    // --- Estado após inserções, evidenciando bifurcações/splits (Seção 3, item 2) ---
+    // --- Estado após inserções, evidenciando bifurcações/splits ---
     exportarGraphviz(raiz, "patricia_apos_insercoes.dot");
 
     cout << "\n--- Teste de Busca ---" << endl;
@@ -279,9 +295,50 @@ int main(int argc, char* argv[]) {
     cout << "Buscar 'carro' apos remocao: " << (buscar(raiz, "carro") ? "Encontrado" : "Nao encontrado") << endl;
     cout << "Buscar 'carreta' apos remocao de 'carro': " << (buscar(raiz, "carreta") ? "Encontrado" : "Nao encontrado") << endl;
 
-    // --- Estado após remoção/reorganização (Seção 3, item 3) ---
+    // --- Estado após remoção/reorganização ---
     exportarGraphviz(raiz, "patricia_apos_remocao.dot");
 
     destruirPatricia(raiz);
+
+    // ==========================================
+    // BENCHMARK
+    // ==========================================
+    string distribuicao = (argc > 2) ? argv[2] : "padrao";
+
+    PatriciaNode* raizBench = criarNo("", false);
+
+    long long tempoInsercaoBench = cronometrar([&]() {
+        for (const string& palavra : palavras) inserir(raizBench, palavra);
+    });
+
+    long long numNos = contarNos(raizBench);
+
+    bool encontrouTudo = true;
+    long long tempoBuscaExistente = cronometrar([&]() {
+        for (const string& palavra : palavras) {
+            if (!buscar(raizBench, palavra)) encontrouTudo = false;
+        }
+    });
+
+    vector<string> chavesInexistentes = gerarChavesInexistentes(palavras);
+    long long tempoBuscaInexistente = cronometrar([&]() {
+        for (const string& chave : chavesInexistentes) buscar(raizBench, chave);
+    });
+
+    long long tempoRemocaoBench = cronometrar([&]() {
+        for (const string& palavra : palavras) remover(raizBench, palavra);
+    });
+
+    cout << "\n--- Benchmark ---" << endl;
+    cout << "Insercao: " << tempoInsercaoBench << " us | Busca(existente): " << tempoBuscaExistente
+         << " us | Busca(inexistente): " << tempoBuscaInexistente
+         << " us | Remocao: " << tempoRemocaoBench << " us" << endl;
+
+    registrarResultadoCSV("resultados.csv", "Patricia", distribuicao, palavras.size(),
+                           tempoInsercaoBench, tempoBuscaExistente, tempoBuscaInexistente,
+                           tempoRemocaoBench, numNos);
+
+    destruirPatricia(raizBench);
+
     return 0;
 }

@@ -8,18 +8,48 @@ using namespace std;
 using namespace std::chrono;
 
 // ==========================================================
-// ÁRVORE SPLAY (Self-Adjusting Binary Search Tree)
-// Baseada no artigo "Self-Adjusting Binary Search Trees"
-// (Sleator & Tarjan, 1985).
-//
-// Propriedade central (conforme suas anotações): a Splay NÃO se
-// preocupa em manter-se balanceada por invariantes estruturais (como a
-// AVL faz com o fator de balanceamento). Em vez disso, ela reorganiza
-// a árvore a CADA acesso, trazendo o elemento acessado até a raiz por
-// meio de uma sequência de rotações chamada "splaying". A garantia de
-// eficiência é apenas AMORTIZADA: O(log n) por operação em média ao
-// longo de uma sequência, mesmo que uma operação isolada custe O(n).
+// UTILITÁRIO DE BENCHMARK E CSV
 // ==========================================================
+template<typename Func>
+long long cronometrar(Func operacao) {
+    auto inicio = high_resolution_clock::now();
+    operacao();
+    auto fim = high_resolution_clock::now();
+    return duration_cast<microseconds>(fim - inicio).count();
+}
+
+void registrarResultadoCSV(const string& nomeArquivo, const string& estrutura,
+                            const string& distribuicao, size_t n,
+                            long long tempoInsercaoUs, long long tempoBuscaExistenteUs,
+                            long long tempoBuscaInexistenteUs, long long tempoRemocaoUs,
+                            long long metricaEstrutural) {
+    ifstream teste(nomeArquivo);
+    bool arquivoJaExiste = teste.good();
+    teste.close();
+
+    ofstream csv(nomeArquivo, ios::app);
+    if (!csv.is_open()) return;
+
+    if (!arquivoJaExiste) {
+        csv << "estrutura,distribuicao,n,tempo_insercao_us,tempo_busca_existente_us,"
+               "tempo_busca_inexistente_us,tempo_remocao_us,metrica_estrutural\n";
+    }
+    csv << estrutura << "," << distribuicao << "," << n << ","
+        << tempoInsercaoUs << "," << tempoBuscaExistenteUs << ","
+        << tempoBuscaInexistenteUs << "," << tempoRemocaoUs << ","
+        << metricaEstrutural << "\n";
+    csv.close();
+}
+
+// Para inteiros, geramos chaves inexistentes somando um valor alto
+vector<int> gerarChavesInexistentes(const vector<int>& base) {
+    vector<int> inexistentes;
+    inexistentes.reserve(base.size());
+    for (int chave : base) {
+        inexistentes.push_back(chave + 9999999); 
+    }
+    return inexistentes;
+}
 
 struct SplayNode {
     int chave;
@@ -64,14 +94,7 @@ void rotacionarEsquerda(SplayNode*& raiz, SplayNode* x) {
 }
 
 // ==========================================================
-// SPLAYING -- traz o nó "x" até a raiz por meio dos 3 casos clássicos:
-//   Caso 1 (Zig)     : pai de x é a raiz -> 1 rotação, encerra o processo.
-//   Caso 2 (Zig-Zig) : x e seu pai são "do mesmo lado" do avô
-//                      (ambos filhos esquerdos ou ambos direitos) ->
-//                      rotaciona primeiro o avô, depois o pai.
-//   Caso 3 (Zig-Zag) : x e seu pai estão em lados opostos do avô
-//                      (padrão "boomerang") -> rotaciona o pai, depois
-//                      o avô.
+// SPLAYING 
 // ==========================================================
 void splay(SplayNode*& raiz, SplayNode* x) {
     while (x->pai != nullptr) {
@@ -104,9 +127,6 @@ void splay(SplayNode*& raiz, SplayNode* x) {
 
 // ==========================================================
 // BUSCA -- O(log n) amortizado.
-// Regra do artigo: se a chave FOR encontrada, faz-se o splay do nó
-// encontrado. Se NÃO for encontrada, faz-se o splay do último nó
-// visitado (o pai da posição de folha onde a busca terminou).
 // ==========================================================
 bool buscar(SplayNode*& raiz, int chave) {
     SplayNode* atual = raiz;
@@ -127,8 +147,6 @@ bool buscar(SplayNode*& raiz, int chave) {
 
 // ==========================================================
 // INSERÇÃO -- O(log n) amortizado.
-// Regra do artigo: ao inserir um novo nó, esse nó é sempre promovido
-// (splay) até a raiz.
 // ==========================================================
 SplayNode* inserir(SplayNode*& raiz, int chave) {
     SplayNode* atual = raiz;
@@ -155,11 +173,6 @@ SplayNode* inserir(SplayNode*& raiz, int chave) {
 
 // ==========================================================
 // REMOÇÃO -- O(log n) amortizado.
-// Regra do artigo: ao remover um nó, o PAI desse nó é promovido à raiz.
-// Como nossa implementação já traz o próprio nó removido para a raiz
-// antes de apagá-lo (via buscar/splay), usamos a técnica equivalente
-// de "join": encontrar o maior elemento da subárvore esquerda (splay
-// dele) e pendurar a subárvore direita nele.
 // ==========================================================
 void remover(SplayNode*& raiz, int chave) {
     if (!raiz) return;
@@ -191,8 +204,7 @@ void destruirSplay(SplayNode* no) {
 }
 
 // ==========================================================
-// PERCURSO EM ORDEM -- para conferir que a propriedade de BST
-// continua válida após as reorganizações.
+// PERCURSO EM ORDEM 
 // ==========================================================
 void emOrdem(SplayNode* no, vector<int>& saida) {
     if (!no) return;
@@ -240,10 +252,7 @@ void exportarGraphviz(SplayNode* raiz, const string& nomeArquivo) {
 }
 
 // ==========================================================
-// LEITURA DO DATASET COMPARTILHADO
-// Mesmo princípio usado em trie.cpp/patricia.cpp: ler de um arquivo
-// externo para que outras estruturas baseadas em chaves comparáveis
-// (ex.: Treap) possam usar exatamente o mesmo conjunto de dados.
+// LEITURA DO DATASET DE INTEIROS
 // ==========================================================
 vector<int> lerDataset(const string& caminho) {
     vector<int> chaves;
@@ -272,11 +281,16 @@ int main(int argc, char* argv[]) {
 
     SplayNode* raiz = nullptr;
 
-    // --- Estado inicial (Seção 3, item 1) ---
+    // --- Estado inicial ---
     exportarGraphviz(raiz, "splay_estado_inicial.dot");
 
     vector<int> chaves = lerDataset(caminhoDataset);
     cout << "--- Lidas " << chaves.size() << " chaves de \"" << caminhoDataset << "\" ---" << endl;
+
+    if (chaves.empty()) {
+        cout << "Dataset vazio. Encerrando." << endl;
+        return 0;
+    }
 
     auto inicio = high_resolution_clock::now();
     for (int chave : chaves) {
@@ -290,36 +304,81 @@ int main(int argc, char* argv[]) {
     cout << "Raiz apos insercoes (deve ser a ULTIMA chave inserida, pela regra de splay-on-insert): "
          << raiz->chave << endl;
 
-    // --- Estado após inserções (Seção 3, item 1) ---
+    // --- Estado após inserções ---
     exportarGraphviz(raiz, "splay_apos_insercoes.dot");
 
-    // --- Demonstração do mecanismo de reorganização (Seção 3, item 2) ---
-    // Acessamos uma chave que ficou "profunda" na árvore (a primeira
-    // inserida, 50, que foi empurrada para baixo pelas inserções
-    // seguintes) para evidenciar o splaying trazendo-a de volta à raiz.
+    // --- Demonstração do mecanismo de reorganização ---
+    int alvoBusca = chaves[0]; 
+    
     cout << "\n--- Teste de Busca (evidenciando reorganizacao) ---" << endl;
-    cout << "Buscando 50 (deve subir ate a raiz apos o acesso)..." << endl;
-    buscar(raiz, 50);
-    cout << "Raiz apos buscar 50: " << raiz->chave << endl;
+    cout << "Buscando " << alvoBusca << " (deve subir ate a raiz apos o acesso)..." << endl;
+    buscar(raiz, alvoBusca);
+    cout << "Raiz apos buscar " << alvoBusca << ": " << raiz->chave << endl;
     exportarGraphviz(raiz, "splay_apos_busca.dot");
 
-    cout << "\nBuscando 999 (chave inexistente -- deve fazer splay do ultimo no visitado)..." << endl;
-    bool achou = buscar(raiz, 999);
+    int chaveInexistente = alvoBusca + 9999999;
+    cout << "\nBuscando " << chaveInexistente << " (chave inexistente -- deve fazer splay do ultimo no visitado)..." << endl;
+    bool achou = buscar(raiz, chaveInexistente);
     cout << "Encontrado: " << (achou ? "sim" : "nao") << " | Raiz apos a tentativa: " << raiz->chave << endl;
 
-    // --- Estado após remoção/reorganização (Seção 3, item 3) ---
+    // --- Estado após remoção/reorganização ---
     cout << "\n--- Teste de Remocao ---" << endl;
-    cout << "Removendo 50..." << endl;
-    remover(raiz, 50);
-    cout << "Raiz apos remover 50: " << raiz->chave << endl;
+    cout << "Removendo " << alvoBusca << "..." << endl;
+    remover(raiz, alvoBusca);
+    cout << "Raiz apos remover " << alvoBusca << ": " << (raiz ? to_string(raiz->chave) : "arvore vazia") << endl;
     exportarGraphviz(raiz, "splay_apos_remocao.dot");
 
     vector<int> ordenado;
     emOrdem(raiz, ordenado);
     cout << "\nPercurso em ordem (deve continuar ordenado, confirmando a propriedade de BST): ";
-    for (int v : ordenado) cout << v << " ";
+    // Imprime apenas os 10 primeiros para não poluir o terminal caso o dataset seja gigante
+    for (size_t i = 0; i < min(ordenado.size(), (size_t)10); i++) {
+        cout << ordenado[i] << " ";
+    }
+    if (ordenado.size() > 10) cout << "...";
     cout << endl;
 
     destruirSplay(raiz);
+
+    // ==========================================
+    // BENCHMARK
+    // ==========================================
+    string distribuicao = (argc > 2) ? argv[2] : "padrao";
+
+    SplayNode* raizBench = nullptr;
+
+    long long tempoInsercaoBench = cronometrar([&]() {
+        for (int chave : chaves) inserir(raizBench, chave);
+    });
+
+    long long alturaFinal = altura(raizBench);
+
+    bool encontrouTudo = true;
+    long long tempoBuscaExistente = cronometrar([&]() {
+        for (int chave : chaves) {
+            if (!buscar(raizBench, chave)) encontrouTudo = false;
+        }
+    });
+
+    vector<int> chavesInexistentes = gerarChavesInexistentes(chaves);
+    long long tempoBuscaInexistente = cronometrar([&]() {
+        for (int chave : chavesInexistentes) buscar(raizBench, chave);
+    });
+
+    long long tempoRemocaoBench = cronometrar([&]() {
+        for (int chave : chaves) remover(raizBench, chave);
+    });
+
+    cout << "\n--- Benchmark ---" << endl;
+    cout << "Insercao: " << tempoInsercaoBench << " us | Busca(existente): " << tempoBuscaExistente
+         << " us | Busca(inexistente): " << tempoBuscaInexistente
+         << " us | Remocao: " << tempoRemocaoBench << " us" << endl;
+
+    registrarResultadoCSV("resultados_numericos.csv", "Splay", distribuicao, chaves.size(),
+                           tempoInsercaoBench, tempoBuscaExistente, tempoBuscaInexistente,
+                           tempoRemocaoBench, alturaFinal);
+
+    destruirSplay(raizBench);
+
     return 0;
 }

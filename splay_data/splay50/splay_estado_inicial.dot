@@ -1,0 +1,3 @@
+digraph Splay {
+    node [shape=circle];
+}

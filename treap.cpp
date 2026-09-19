@@ -10,18 +10,49 @@ using namespace std;
 using namespace std::chrono;
 
 // ==========================================================
-// ÁRVORE TREAP (Tree + Heap)
-//
-// Combina duas propriedades simultâneas (conforme suas anotações):
-//   1) Propriedade de BST em relação às CHAVES: esquerda < nó < direita.
-//   2) Propriedade de HEAP (max-heap) em relação às PRIORIDADES:
-//      a prioridade de um nó é sempre maior que a de seus filhos.
-//
-// As prioridades são geradas aleatoriamente na inserção. É esse
-// sorteio que dá o balanceamento PROBABILÍSTICO da estrutura (esperado
-// O(log n)), sem precisar de nenhuma regra determinística de
-// balanceamento como a AVL usa.
+// UTILITÁRIO DE BENCHMARK E CSV
 // ==========================================================
+template<typename Func>
+long long cronometrar(Func operacao) {
+    auto inicio = high_resolution_clock::now();
+    operacao();
+    auto fim = high_resolution_clock::now();
+    return duration_cast<microseconds>(fim - inicio).count();
+}
+
+void registrarResultadoCSV(const string& nomeArquivo, const string& estrutura,
+                            const string& distribuicao, size_t n,
+                            long long tempoInsercaoUs, long long tempoBuscaExistenteUs,
+                            long long tempoBuscaInexistenteUs, long long tempoRemocaoUs,
+                            long long metricaEstrutural) {
+    ifstream teste(nomeArquivo);
+    bool arquivoJaExiste = teste.good();
+    teste.close();
+
+    ofstream csv(nomeArquivo, ios::app);
+    if (!csv.is_open()) return;
+
+    if (!arquivoJaExiste) {
+        csv << "estrutura,distribuicao,n,tempo_insercao_us,tempo_busca_existente_us,"
+               "tempo_busca_inexistente_us,tempo_remocao_us,metrica_estrutural\n";
+    }
+    csv << estrutura << "," << distribuicao << "," << n << ","
+        << tempoInsercaoUs << "," << tempoBuscaExistenteUs << ","
+        << tempoBuscaInexistenteUs << "," << tempoRemocaoUs << ","
+        << metricaEstrutural << "\n";
+    csv.close();
+}
+
+vector<int> gerarChavesInexistentes(const vector<int>& base) {
+    vector<int> inexistentes;
+    inexistentes.reserve(base.size());
+    for (int chave : base) {
+        inexistentes.push_back(chave + 9999999); 
+    }
+    return inexistentes;
+}
+
+
 
 struct TreapNode {
     int chave;
@@ -40,9 +71,7 @@ TreapNode* criarNo(int chave, int prioridade) {
 
 // Gerador de prioridades aleatórias. Usamos uma semente FIXA (42) para
 // que a demonstração seja reprodutível (mesmas imagens toda vez que
-// rodar). Em experimentos reais (Seção 5), troque por
-// std::random_device para prioridades verdadeiramente aleatórias a
-// cada execução.
+// rodar).
 mt19937 geradorAleatorio(42);
 uniform_int_distribution<int> distribuicaoPrioridade(1, 1000);
 int gerarPrioridade() { return distribuicaoPrioridade(geradorAleatorio); }
@@ -68,9 +97,6 @@ TreapNode* rotacionarEsquerda(TreapNode* x) {
 
 // ==========================================================
 // INSERÇÃO -- O(log n) esperado.
-// Desce como uma BST comum pela chave; na volta da recursão, se o
-// filho tiver prioridade MAIOR que o pai, rotaciona para restaurar a
-// propriedade de heap.
 // ==========================================================
 TreapNode* inserirComPrioridade(TreapNode* raiz, int chave, int prioridade) {
     if (!raiz) return criarNo(chave, prioridade);
@@ -106,10 +132,6 @@ bool buscar(TreapNode* raiz, int chave) {
 
 // ==========================================================
 // REMOÇÃO -- O(log n) esperado.
-// Desce até encontrar o nó; então gira-o para baixo (sempre na direção
-// do filho de MAIOR prioridade) até que ele vire uma folha, e só então
-// é removido -- assim a propriedade de heap nunca é violada durante o
-// processo.
 // ==========================================================
 TreapNode* remover(TreapNode* raiz, int chave) {
     if (!raiz) return nullptr;
@@ -146,9 +168,6 @@ TreapNode* remover(TreapNode* raiz, int chave) {
 
 // ==========================================================
 // OPERAÇÃO ESPECÍFICA: ATUALIZAÇÃO DE PRIORIDADE
-// Demonstra explicitamente a "alteração de prioridades" mencionada no
-// enunciado (Seção 3): remove o nó e o reinsere com uma nova
-// prioridade, forçando uma nova sequência de rotações.
 // ==========================================================
 TreapNode* atualizarPrioridade(TreapNode* raiz, int chave, int novaPrioridade) {
     if (!buscar(raiz, chave)) return raiz; // chave não existe, nada a fazer
@@ -171,8 +190,6 @@ int altura(TreapNode* no) {
 
 // ==========================================================
 // EXPORTAÇÃO VISUAL (Graphviz / DOT)
-// Cada nó mostra chave e prioridade -- essencial para visualizar por
-// que uma rotação ocorreu (o filho tinha prioridade maior que o pai).
 // ==========================================================
 void gerarDotRecursivo(TreapNode* no, int meuId, int& proximoId, ofstream& arquivo) {
     if (no->esquerda) {
@@ -206,7 +223,7 @@ void exportarGraphviz(TreapNode* raiz, const string& nomeArquivo) {
 }
 
 // ==========================================================
-// LEITURA DO DATASET COMPARTILHADO (mesmo arquivo usado pela Splay)
+// LEITURA DO DATASET COMPARTILHADO
 // ==========================================================
 vector<int> lerDataset(const string& caminho) {
     vector<int> chaves;
@@ -235,11 +252,16 @@ int main(int argc, char* argv[]) {
 
     TreapNode* raiz = nullptr;
 
-    // --- Estado inicial (Seção 3, item 1) ---
+    // --- Estado inicial ---
     exportarGraphviz(raiz, "treap_estado_inicial.dot");
 
     vector<int> chaves = lerDataset(caminhoDataset);
     cout << "--- Lidas " << chaves.size() << " chaves de \"" << caminhoDataset << "\" ---" << endl;
+
+    if (chaves.empty()) {
+        cout << "Dataset vazio. Encerrando." << endl;
+        return 0;
+    }
 
     auto inicio = high_resolution_clock::now();
     for (int chave : chaves) {
@@ -255,27 +277,76 @@ int main(int argc, char* argv[]) {
     cout << "Raiz apos insercoes (chave com a maior prioridade sorteada): "
          << raiz->chave << " (p=" << raiz->prioridade << ")" << endl;
 
-    // --- Estado após inserções (Seção 3, item 1) ---
+    // --- Estado após inserções ---
     exportarGraphviz(raiz, "treap_apos_insercoes.dot");
 
-    cout << "\n--- Teste de Busca ---" << endl;
-    cout << "Buscar 45: " << (buscar(raiz, 45) ? "Encontrado" : "Nao encontrado") << endl;
-    cout << "Buscar 999: " << (buscar(raiz, 999) ? "Encontrado" : "Nao encontrado") << endl;
+    int alvoBusca = chaves[0];
+    int chaveInexistente = alvoBusca + 9999999;
 
-    // --- Estado intermediário: alteração de prioridade forçando rotações (Seção 3, item 2) ---
+    cout << "\n--- Teste de Busca ---" << endl;
+    cout << "Buscar " << alvoBusca << ": " << (buscar(raiz, alvoBusca) ? "Encontrado" : "Nao encontrado") << endl;
+    cout << "Buscar " << chaveInexistente << ": " << (buscar(raiz, chaveInexistente) ? "Encontrado" : "Nao encontrado") << endl;
+
+    // --- Estado intermediário: alteração de prioridade forçando rotações ---
     cout << "\n--- Teste de Atualizacao de Prioridade (operacao especifica) ---" << endl;
-    cout << "Atribuindo prioridade maxima (9999) a chave 10, forcando-a a subir..." << endl;
-    raiz = atualizarPrioridade(raiz, 10, 9999);
-    cout << "Raiz apos atualizar prioridade de 10: " << raiz->chave << " (p=" << raiz->prioridade << ")" << endl;
+    cout << "Atribuindo prioridade maxima (9999) a chave " << alvoBusca << ", forcando-a a subir..." << endl;
+    raiz = atualizarPrioridade(raiz, alvoBusca, 9999);
+    cout << "Raiz apos atualizar prioridade de " << alvoBusca << ": " << raiz->chave << " (p=" << raiz->prioridade << ")" << endl;
     exportarGraphviz(raiz, "treap_apos_prioridade.dot");
 
-    // --- Estado após remoção (Seção 3, item 3) ---
+    // --- Estado após remoção ---
     cout << "\n--- Teste de Remocao ---" << endl;
-    cout << "Removendo 10..." << endl;
-    raiz = remover(raiz, 10);
-    cout << "Buscar 10 apos remocao: " << (buscar(raiz, 10) ? "Encontrado" : "Nao encontrado") << endl;
+    cout << "Removendo " << alvoBusca << "..." << endl;
+    raiz = remover(raiz, alvoBusca);
+    cout << "Buscar " << alvoBusca << " apos remocao: " << (buscar(raiz, alvoBusca) ? "Encontrado" : "Nao encontrado") << endl;
     exportarGraphviz(raiz, "treap_apos_remocao.dot");
 
     destruirTreap(raiz);
+
+    // ==========================================
+    // BENCHMARK
+    // ==========================================
+    string distribuicao = (argc > 2) ? argv[2] : "padrao";
+
+    TreapNode* raizBench = nullptr;
+
+    long long tempoInsercaoBench = cronometrar([&]() {
+        for (int chave : chaves) raizBench = inserir(raizBench, chave);
+    });
+
+    long long alturaFinal = altura(raizBench);
+
+    bool encontrouTudo = true;
+    long long tempoBuscaExistente = cronometrar([&]() {
+        for (int chave : chaves) {
+            if (!buscar(raizBench, chave)) encontrouTudo = false;
+        }
+    });
+
+    vector<int> chavesInexistentes = gerarChavesInexistentes(chaves);
+    bool encontrouAlgumaInexistente = false; // deve continuar "false" ao final (nenhuma deveria existir)
+    long long tempoBuscaInexistente = cronometrar([&]() {
+        for (int chave : chavesInexistentes) {
+            if (buscar(raizBench, chave)) encontrouAlgumaInexistente = true;
+        }
+    });
+
+    long long tempoRemocaoBench = cronometrar([&]() {
+        for (int chave : chaves) raizBench = remover(raizBench, chave);
+    });
+
+    cout << "\n--- Benchmark ---" << endl;
+    cout << "Insercao: " << tempoInsercaoBench << " us | Busca(existente): " << tempoBuscaExistente
+         << " us (todas encontradas: " << (encontrouTudo ? "sim" : "nao") << ")"
+         << " | Busca(inexistente): " << tempoBuscaInexistente
+         << " us (falso positivo: " << (encontrouAlgumaInexistente ? "sim" : "nao") << ")"
+         << " us | Remocao: " << tempoRemocaoBench << " us" << endl;
+
+    registrarResultadoCSV("resultados_numericos.csv", "Treap", distribuicao, chaves.size(),
+                           tempoInsercaoBench, tempoBuscaExistente, tempoBuscaInexistente,
+                           tempoRemocaoBench, alturaFinal);
+
+    destruirTreap(raizBench);
+
     return 0;
 }

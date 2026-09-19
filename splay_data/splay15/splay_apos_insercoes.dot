@@ -1,0 +1,32 @@
+digraph Splay {
+    node [shape=circle];
+    node0 [label="50", style=filled, fillcolor=lightgrey];
+    node0 -> node1 [label="E"];
+    node1 [label="33"];
+    node1 -> node2 [label="E"];
+    node2 [label="11"];
+    node2 -> node3 [label="E"];
+    node3 [label="1"];
+    node2 -> node4 [label="D"];
+    node4 [label="12"];
+    node4 -> node5 [label="D"];
+    node5 [label="23"];
+    node1 -> node6 [label="D"];
+    node6 [label="43"];
+    node6 -> node7 [label="E"];
+    node7 [label="34"];
+    node6 -> node8 [label="D"];
+    node8 [label="45"];
+    node0 -> node9 [label="D"];
+    node9 [label="90"];
+    node9 -> node10 [label="E"];
+    node10 [label="78"];
+    node10 -> node11 [label="E"];
+    node11 [label="56"];
+    node11 -> node12 [label="D"];
+    node12 [label="67"];
+    node10 -> node13 [label="D"];
+    node13 [label="89"];
+    node13 -> node14 [label="E"];
+    node14 [label="87"];
+}

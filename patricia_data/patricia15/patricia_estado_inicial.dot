@@ -1,0 +1,4 @@
+digraph Patricia {
+    node [shape=circle];
+    node0 [label=""];
+}

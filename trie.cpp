@@ -1,9 +1,11 @@
 #include <iostream>
 #include <string>
 #include <vector>
-#include <cctype>   // Para tolower()
+#include <cctype>  
 #include <fstream>
 #include <chrono>
+#include <random>
+#include <algorithm>
 
 using namespace std;
 using namespace std::chrono;
@@ -11,10 +13,57 @@ using namespace std::chrono;
 const int TAMANHO_ALFABETO = 26;
 
 // ==========================================
+// UTILITÁRIO DE BENCHMARK 
+// ==========================================
+template<typename Func>
+long long cronometrar(Func operacao) {
+    auto inicio = high_resolution_clock::now();
+    operacao();
+    auto fim = high_resolution_clock::now();
+    return duration_cast<microseconds>(fim - inicio).count();
+}
+
+// ==========================================
+// GRAVAÇÃO DO RESULTADO EM CSV 
+// ==========================================
+void registrarResultadoCSV(const string& nomeArquivo, const string& estrutura,
+                            const string& distribuicao, size_t n,
+                            long long tempoInsercaoUs, long long tempoBuscaExistenteUs,
+                            long long tempoBuscaInexistenteUs, long long tempoRemocaoUs,
+                            long long metricaEstrutural) {
+    ifstream teste(nomeArquivo);
+    bool arquivoJaExiste = teste.good();
+    teste.close();
+
+    ofstream csv(nomeArquivo, ios::app);
+    if (!csv.is_open()) return;
+
+    if (!arquivoJaExiste) {
+        csv << "estrutura,distribuicao,n,tempo_insercao_us,tempo_busca_existente_us,"
+               "tempo_busca_inexistente_us,tempo_remocao_us,metrica_estrutural\n";
+    }
+    csv << estrutura << "," << distribuicao << "," << n << ","
+        << tempoInsercaoUs << "," << tempoBuscaExistenteUs << ","
+        << tempoBuscaInexistenteUs << "," << tempoRemocaoUs << ","
+        << metricaEstrutural << "\n";
+    csv.close();
+}
+
+// Gera chaves garantidamente ausentes do dicionário, para medir o
+// custo de uma busca malsucedida (percorre até não encontrar o
+// caractere, o que em geral é mais rápido que uma busca bem-sucedida
+// -- vale comparar os dois tempos no relatório).
+vector<string> gerarChavesInexistentes(const vector<string>& base) {
+    vector<string> inexistentes;
+    inexistentes.reserve(base.size());
+    for (const string& palavra : base) {
+        inexistentes.push_back(palavra + "zzq"); // sufixo que não deve existir no dicionario
+    }
+    return inexistentes;
+}
+
+// ==========================================
 // ANATOMIA DO NÓ (Vetor Estático)
-// Decisão de projeto (Fredkin, 1960): cada nó é um "registro" com uma
-// célula fixa por símbolo do alfabeto -- acesso O(1) por nível ao custo
-// de memória alocada mesmo para letras que não ocorrem.
 // ==========================================
 struct TrieNode {
     TrieNode* filhos[TAMANHO_ALFABETO];
@@ -32,20 +81,6 @@ TrieNode* criarNo() {
 
 // ==========================================
 // NORMALIZAÇÃO E VALIDAÇÃO DE ENTRADA
-//
-// Mudança em relação à versão anterior: em vez de encerrar o programa
-// (exit) ao encontrar um caractere fora de 'a'-'z', a função agora
-// devolve um status de validade e a palavra inválida é apenas IGNORADA
-// (com aviso). Isso é necessário porque o mesmo dicionário será lido por
-// inteiro por Trie e Patricia -- se uma palavra travar o programa, as
-// duas estruturas deixam de receber exatamente o mesmo conjunto de
-// palavras, o que quebraria a comparação exigida no trabalho.
-//
-// Limitação conhecida (documentar no relatório, Seção 6): o alfabeto
-// continua restrito a 'a'-'z' sem acentuação. Um dicionário real em
-// português exigiria expandir o alfabeto (ou pré-processar removendo
-// acentos), o que impacta diretamente o tamanho do vetor de filhos da
-// Trie -- ponto interessante para a análise de custo de memória.
 // ==========================================
 pair<string, bool> normalizar(const string& palavra) {
     string normalizada = "";
@@ -156,9 +191,7 @@ vector<string> autocompletar(TrieNode* raiz, const string& prefixoNormalizado) {
 }
 
 // ==========================================
-// CONTAGEM DE NÓS -- usada na Seção 5 para comparar custo de
-// memória (nº de nós instanciados) entre Trie e Patricia com o
-// MESMO dicionário de entrada.
+// CONTAGEM DE NÓS
 // ==========================================
 int contarNos(TrieNode* atual) {
     if (!atual) return 0;
@@ -170,19 +203,18 @@ int contarNos(TrieNode* atual) {
 }
 
 // ==========================================
-// EXPORTAÇÃO VISUAL (Graphviz / DOT)
+// EXPORTAÇÃO VISUAL 
 // ==========================================
-void gerarDotRecursivo(TrieNode* atual, int& idAtual, ofstream& arquivo) {
-    int meuId = idAtual;
-    if (atual->fimDePalavra) {
-        arquivo << "    node" << meuId << " [style=filled, fillcolor=lightgrey];\n";
-    }
+void gerarDotRecursivo(TrieNode* atual, int meuId, int& proximoId, ofstream& arquivo) {
     for (int i = 0; i < TAMANHO_ALFABETO; i++) {
         if (atual->filhos[i] != nullptr) {
-            int idFilho = ++idAtual;
+            int idFilho = ++proximoId;
             char letra = i + 'a';
-            arquivo << "    node" << meuId << " -> node" << idFilho << " [label=\"" << letra << "\"];\n";
-            gerarDotRecursivo(atual->filhos[i], idAtual, arquivo);
+            string estilo = atual->filhos[i]->fimDePalavra
+                ? ", style=filled, fillcolor=lightgrey" : "";
+            arquivo << "    node" << idFilho << " [label=\"" << letra << "\"" << estilo << "];\n";
+            arquivo << "    node" << meuId << " -> node" << idFilho << ";\n";
+            gerarDotRecursivo(atual->filhos[i], idFilho, proximoId, arquivo);
         }
     }
 }
@@ -190,18 +222,19 @@ void gerarDotRecursivo(TrieNode* atual, int& idAtual, ofstream& arquivo) {
 void exportarGraphviz(TrieNode* raiz, const string& nomeArquivo) {
     ofstream arquivo(nomeArquivo);
     if (!arquivo.is_open()) return;
-    arquivo << "digraph Trie {\n    node [shape=circle];\n";
+    arquivo << "digraph Trie {\n"
+            << "    graph [ranksep=0.6, nodesep=0.4];\n"
+            << "    node [shape=circle, fontsize=20, width=0.55, fixedsize=true];\n"
+            << "    edge [arrowsize=0.7];\n"
+            << "    node0 [label=\"\"];\n";
     int id = 0;
-    gerarDotRecursivo(raiz, id, arquivo);
+    gerarDotRecursivo(raiz, id, id, arquivo);
     arquivo << "}\n";
     arquivo.close();
 }
 
 // ==========================================
 // LEITURA DO DICIONÁRIO COMPARTILHADO
-// (o mesmo arquivo "dicionario.txt" é lido também pela Patricia, para
-// que as duas estruturas recebam exatamente o mesmo conjunto de
-// palavras -- ver Seção 5 do enunciado)
 // ==========================================
 vector<string> lerDicionario(const string& caminho) {
     vector<string> palavras;
@@ -231,7 +264,7 @@ int main(int argc, char* argv[]) {
 
     TrieNode* raiz = criarNo();
 
-    // --- Estado inicial (Seção 3, item 1) ---
+    // --- Estado inicial---
     exportarGraphviz(raiz, "trie_estado_inicial.dot");
 
     vector<string> palavras = lerDicionario(caminhoDicionario);
@@ -247,7 +280,7 @@ int main(int argc, char* argv[]) {
     cout << "Insercao de " << palavras.size() << " palavras levou " << duracao.count() << " microsegundos." << endl;
     cout << "Numero de nos instanciados na Trie: " << contarNos(raiz) << endl;
 
-    // --- Estado após inserções (Seção 3, item 1) ---
+    // --- Estado após inserções ---
     exportarGraphviz(raiz, "trie_apos_insercoes.dot");
 
     cout << "\n--- Teste de Busca ---" << endl;
@@ -259,20 +292,66 @@ int main(int argc, char* argv[]) {
         cout << "- " << s << endl;
     }
 
-    // --- Estado intermediário evidenciando a operação específica ---
-    // (o autocompletar não altera a estrutura; o estado relevante para
-    // "bifurcação" já está registrado em trie_apos_insercoes.dot, onde
-    // o nó "ca" se ramifica em "rro", "rreta", "rta", "sa", "ma", "chorro")
-
     cout << "\n--- Teste de Remocao ---" << endl;
     cout << "Removendo 'carro'..." << endl;
     remover(raiz, "carro");
     cout << "Buscar 'carro' apos remocao: " << (buscar(raiz, "carro") ? "Encontrado" : "Nao encontrado") << endl;
     cout << "Buscar 'carreta' apos remocao de 'carro': " << (buscar(raiz, "carreta") ? "Encontrado" : "Nao encontrado") << endl;
 
-    // --- Estado após remoção (Seção 3, item 3) ---
+    // --- Estado após remoção ---
     exportarGraphviz(raiz, "trie_apos_remocao.dot");
 
     destruirTrie(raiz);
+
+    // ==========================================
+    // BENCHMARK
+    // ==========================================
+    string distribuicao = (argc > 2) ? argv[2] : "padrao";
+
+    TrieNode* raizBench = criarNo();
+
+    long long tempoInsercao = cronometrar([&]() {
+        for (const string& palavra : palavras) inserir(raizBench, palavra);
+    });
+
+    // Métrica estrutural (custo de memória) capturada logo após a
+    // insercao completa 
+    long long numNos = contarNos(raizBench);
+
+    // Busca de chaves existentes: reusa o próprio dicionário lido.
+    bool encontrouTudo = true;
+    long long tempoBuscaExistente = cronometrar([&]() {
+        for (const string& palavra : palavras) {
+            if (!buscar(raizBench, palavra)) encontrouTudo = false;
+        }
+    });
+
+    // Busca de chaves garantidamente ausentes (pior caso de busca malsucedida).
+    vector<string> chavesInexistentes = gerarChavesInexistentes(palavras);
+    bool encontrouAlgumaInexistente = false; // deve continuar "false" ao final (nenhuma deveria existir)
+    long long tempoBuscaInexistente = cronometrar([&]() {
+        for (const string& chave : chavesInexistentes) {
+            if (buscar(raizBench, chave)) encontrouAlgumaInexistente = true;
+        }
+    });
+
+    // Remoção de todo o conjunto (para medir o custo total de remoção
+    // no mesmo volume de dados que foi inserido).
+    long long tempoRemocao = cronometrar([&]() {
+        for (const string& palavra : palavras) remover(raizBench, palavra);
+    });
+
+    cout << "\n--- Benchmark ---" << endl;
+    cout << "Insercao: " << tempoInsercao << " us | Busca(existente): " << tempoBuscaExistente
+         << " us (todas encontradas: " << (encontrouTudo ? "sim" : "nao") << ")"
+         << " | Busca(inexistente): " << tempoBuscaInexistente
+         << " us (falso positivo: " << (encontrouAlgumaInexistente ? "sim" : "nao") << ")"
+         << " us | Remocao: " << tempoRemocao << " us" << endl;
+
+    registrarResultadoCSV("resultados.csv", "Trie", distribuicao, palavras.size(),
+                           tempoInsercao, tempoBuscaExistente, tempoBuscaInexistente,
+                           tempoRemocao, numNos);
+
+    destruirTrie(raizBench);
     return 0;
 }
